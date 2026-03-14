@@ -2,88 +2,98 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Page layout
 st.set_page_config(page_title="Doctor Payment Analytics", layout="wide")
 
-st.title("🏥 Smart Doctor Payment Dashboard")
-st.markdown("### Upload your monthly Excel report to see the analysis.")
+st.title("🏥 Smart Doctor & Clinic Dashboard")
+st.markdown("### Comprehensive Financial Summary per Doctor")
 
-# File Uploader
 uploaded_file = st.file_uploader("Upload Excel (.xlsx) file", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
         # Step 1: Intelligent Header Detection
-        # We read the file first to find where the actual table starts
         all_data = pd.read_excel(uploaded_file, header=None)
-        
         header_row = 0
         for i, row in all_data.iterrows():
-            # Checking for 'Doctor Name' to identify the header row
             if row.astype(str).str.contains('Doctor Name', case=False).any():
                 header_row = i
                 break
         
-        # Reload with the correct header
         df = pd.read_excel(uploaded_file, header=header_row)
-        df.columns = df.columns.str.strip() # Remove any accidental spaces
+        df.columns = df.columns.str.strip()
 
-        # Step 2: Essential Columns Check
-        # We look for columns even if the capitalization is different
-        required = {'Doctor Name': None, 'Doc Share': None, 'Clinic Share': None, 'Net Amount': None}
-        for col in df.columns:
-            for req in required.keys():
-                if col.lower() == req.lower():
-                    required[req] = col
+        # Step 2: Essential Columns Check (Including Fees and Discount)
+        # We define what we need and map them to what exists in the file
+        cols_to_find = {
+            'Doctor Name': ['Doctor Name', 'Doctor'],
+            'Fee': ['Fee', 'Fees', 'Gross Amount'],
+            'Discount': ['Discount', 'Disc'],
+            'Net Amount': ['Net Amount', 'Net'],
+            'Doc Share': ['Doc Share', 'Doctor Share'],
+            'Clinic Share': ['Clinic Share', 'Hospital Share']
+        }
+        
+        mapped_cols = {}
+        for key, alternatives in cols_to_find.items():
+            for col in df.columns:
+                if col.lower() in [a.lower() for a in alternatives]:
+                    mapped_cols[key] = col
+                    break
 
-        if None in required.values():
-            st.error(f"Required columns missing! Make sure your file has: Doctor Name, Doc Share, Clinic Share, and Net Amount.")
+        if len(mapped_cols) < len(cols_to_find):
+            missing = set(cols_to_find.keys()) - set(mapped_cols.keys())
+            st.error(f"Missing columns in Excel: {', '.join(missing)}")
         else:
-            # Step 3: Data Cleaning (Converting strings to numbers)
-            for col in [required['Doc Share'], required['Clinic Share'], required['Net Amount']]:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            # Step 3: Data Cleaning
+            numeric_cols = ['Fee', 'Discount', 'Net Amount', 'Doc Share', 'Clinic Share']
+            for col_key in numeric_cols:
+                actual_name = mapped_cols[col_key]
+                df[actual_name] = pd.to_numeric(df[actual_name], errors='coerce').fillna(0)
 
-            # --- DASHBOARD UI ---
-            # Top Metrics
-            total_rev = df[required['Net Amount']].sum()
-            total_doc = df[required['Doc Share']].sum()
-            total_clinic = df[required['Clinic Share']].sum()
+            # --- CALCULATIONS ---
+            # Grouping exactly as the Boss requested
+            doc_summary = df.groupby(mapped_cols['Doctor Name']).agg({
+                mapped_cols['Fee']: 'sum',
+                mapped_cols['Discount']: 'sum',
+                mapped_cols['Net Amount']: 'sum',
+                mapped_cols['Doc Share']: 'sum',
+                mapped_cols['Clinic Share']: 'sum'
+            }).reset_index()
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Total Net Revenue", f"₹{total_rev:,.2f}")
-            with c2:
-                st.metric("Total Doctor Payout", f"₹{total_doc:,.2f}", delta_color="normal")
-            with c3:
-                st.metric("Clinic's Total Earning", f"₹{total_clinic:,.2f}")
+            # Renaming for a clean display
+            doc_summary.columns = ['Doctor Name', 'Total Fees', 'Total Discount', 'Net Revenue', 'Doctor Share', 'Clinic Share']
+
+            # --- UI DISPLAY ---
+            # Metrics
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Gross Fees", f"₹{doc_summary['Total Fees'].sum():,.2f}")
+            c2.metric("Total Discount", f"₹{doc_summary['Total Discount'].sum():,.2f}", delta=None, delta_color="inverse")
+            c3.metric("Doctor Payout", f"₹{doc_summary['Doctor Share'].sum():,.2f}")
+            c4.metric("Clinic Net", f"₹{doc_summary['Clinic Share'].sum():,.2f}")
 
             st.divider()
 
-            # Charts
-            st.subheader("👨‍⚕️ Doctor-wise Payout & Clinic Share")
-            doc_summary = df.groupby(required['Doctor Name']).agg({
-                required['Doc Share']: 'sum',
-                required['Clinic Share']: 'sum'
-            }).reset_index()
-
-            fig = px.bar(doc_summary, 
-                         x=required['Doctor Name'], 
-                         y=[required['Doc Share'], required['Clinic Share']],
-                         barmode='group',
-                         labels={'value': 'Amount (₹)', 'variable': 'Share Type'},
-                         template="plotly_white")
+            # Main Detailed Table (What the Boss asked for)
+            st.subheader("📋 Doctor Wise Summary Report")
+            st.markdown("Detailed breakdown of Fees, Discounts, and Share distribution.")
             
+            # Styling the table to highlight high revenue
+            st.dataframe(doc_summary.style.format(precision=2).highlight_max(axis=0, subset=['Net Revenue'], color='#d4edda'), use_container_width=True)
+
+            # Visual Chart
+            st.subheader("📊 Financial Distribution Chart")
+            fig = px.bar(doc_summary, 
+                         x='Doctor Name', 
+                         y=['Doctor Share', 'Clinic Share', 'Total Discount'],
+                         title="Share vs Discount Breakdown",
+                         barmode='stack') # Stacked shows the total 'Fee' composition better
             st.plotly_chart(fig, use_container_width=True)
 
-            # Data Table
-            with st.expander("View Full Summary Table"):
-                st.dataframe(doc_summary.sort_values(by=required['Clinic Share'], ascending=False), use_container_width=True)
-
-            # Download
+            # Export
             csv = doc_summary.to_csv(index=False).encode('utf-8')
-            st.download_button("📩 Download This Report", data=csv, file_name="payment_summary.csv", mime="text/csv")
+            st.download_button("📩 Download Professional Summary", data=csv, file_name="Doctor_Wise_Report.csv", mime="text/csv")
 
     except Exception as e:
-        st.error(f"Error: Could not process the file. Detail: {e}")
+        st.error(f"Error processing file: {e}")
 else:
-    st.info("👋 Please upload the Excel file from the sidebar or the box above to begin.")
+    st.info("Please upload the file to generate the Doctor Summary.")
