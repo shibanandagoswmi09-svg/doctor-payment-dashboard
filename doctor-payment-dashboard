@@ -1,0 +1,51 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+st.set_page_config(page_title="Doctor Payment Dashboard", layout="wide")
+
+st.title("Hospital & Doctor Payment Analysis")
+st.sidebar.header("Upload Data")
+
+# File Uploader
+uploaded_file = st.sidebar.file_uploader("Upload 'Doc Payment' CSV File", type="csv")
+
+if uploaded_file is not None:
+    # Data Loading (skiprows=1 karon apnar file-e prothome totals thakche)
+    df = pd.read_csv(uploaded_file, skiprows=1)
+    df.columns = df.columns.str.strip() # Column names clean kora
+
+    # Analysis
+    st.subheader("📊 Key Highlights")
+    col1, col2, col3 = st.columns(3)
+    
+    total_revenue = df['Net Amount'].sum()
+    total_clinic = df['Clinic Share'].sum()
+    total_doctor = df['Doc Share'].sum()
+
+    col1.metric("Total Revenue", f"₹{total_revenue:,.2f}")
+    col2.metric("Total Clinic Share", f"₹{total_clinic:,.2f}")
+    col3.metric("Total Doctor Share", f"₹{total_doctor:,.2f}")
+
+    # Doctor-wise Chart
+    st.subheader("👨‍⚕️ Doctor-wise Performance")
+    doc_summary = df.groupby('Doctor Name').agg({
+        'Doc Share': 'sum',
+        'Clinic Share': 'sum',
+        'Net Amount': 'sum'
+    }).reset_index()
+
+    fig = px.bar(doc_summary, x='Doctor Name', y=['Doc Share', 'Clinic Share'], 
+                 barmode='group', title="Doctor vs Clinic Share Breakdown")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Detailed Table
+    st.subheader("📝 Detailed Report")
+    st.dataframe(doc_summary.style.format(precision=2))
+
+    # Download Option
+    csv = doc_summary.to_csv(index=False).encode('utf-8')
+    st.download_button("Download Report as CSV", data=csv, file_name="Doctor_Report.csv", mime="text/csv")
+
+else:
+    st.info("Side-bar theke file-ta upload korun report generate korar jonno.")
