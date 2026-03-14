@@ -11,11 +11,10 @@ uploaded_file = st.file_uploader("Upload Excel (.xlsx) file", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Step A: Intelligent Header Detection
+        # Step A: Header Detection
         all_data = pd.read_excel(uploaded_file, header=None)
         header_row = 0
         for i, row in all_data.iterrows():
-            # Check if row has 'Doctor' or 'Pt. Name' to identify header
             if row.astype(str).str.contains('Doctor|Pt. Name', case=False).any():
                 header_row = i
                 break
@@ -23,8 +22,7 @@ if uploaded_file is not None:
         df = pd.read_excel(uploaded_file, header=header_row)
         df.columns = df.columns.str.strip()
 
-        # Step B: Super Flexible Column Mapping (Keyword Logic)
-        # Ekhane amra common keywords diye column khujbo
+        # Step B: Super Flexible Column Mapping
         mapping_rules = {
             'Doctor Name': ['doctor', 'dr', 'doc'],
             'Fee': ['fee', 'gross', 'billing', 'charge'],
@@ -37,23 +35,18 @@ if uploaded_file is not None:
         mapped_cols = {}
         for final_key, keywords in mapping_rules.items():
             for col in df.columns:
-                # Jodi column namer moddhe keyword-er kono ekta thake
                 if any(kw in col.lower() for kw in keywords):
                     mapped_cols[final_key] = col
                     break
 
-        # Validation check
-        if len(mapped_cols) < 6:
-            missing = set(mapping_rules.keys()) - set(mapped_cols.keys())
-            st.warning(f"Note: Some columns might be missing: {', '.join(missing)}. Please check column headers.")
-        
-        # Step C: Data Cleaning & Numeric Conversion
+        # Step C: Data Cleaning (Simplified for Compatibility)
         numeric_keys = ['Fee', 'Discount', 'Net Amount', 'Doc Share', 'Clinic Share']
-        for key in numeric_cols_to_clean := [k for k in numeric_keys if k in mapped_cols]:
-            col_name = mapped_cols[key]
-            df[col_name] = pd.to_numeric(df[col_name], errors='coerce').fillna(0)
+        for key in numeric_keys:
+            if key in mapped_cols:
+                col_name = mapped_cols[key]
+                df[col_name] = pd.to_numeric(df[col_name], errors='coerce').fillna(0)
 
-        # Step D: Aggregation (The final report)
+        # Step D: Aggregation
         if 'Doctor Name' in mapped_cols:
             doc_summary = df.groupby(mapped_cols['Doctor Name']).agg({
                 mapped_cols.get('Fee', df.columns[0]): 'sum',
@@ -74,7 +67,7 @@ if uploaded_file is not None:
             else:
                 final_display = doc_summary
 
-            # Step F: Dashboard UI
+            # Step F: UI Metrics
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Gross Fees", f"₹{final_display['Total Fees'].sum():,.2f}")
             c2.metric("Discounts", f"₹{final_display['Total Discount'].sum():,.2f}")
@@ -86,18 +79,18 @@ if uploaded_file is not None:
             st.subheader(f"📊 Detailed Breakdown: {search_doc}")
             st.dataframe(final_display.style.format(precision=2), use_container_width=True)
 
-            # Interactive Stacked Chart
+            # Interactive Chart
             fig = px.bar(final_display, x='Doctor Name', y=['Doctor Share', 'Clinic Share', 'Total Discount'],
-                         title="Financial Distribution (Doctor Share + Clinic Share + Discount)",
+                         title="Financial Distribution (Stacked)",
                          labels={'value': 'Amount (₹)', 'variable': 'Type'},
                          barmode='stack')
             st.plotly_chart(fig, use_container_width=True)
 
             # Export button
             csv = final_display.to_csv(index=False).encode('utf-8')
-            st.download_button("📩 Download Professional Report", data=csv, file_name="Doctor_Summary_Report.csv")
+            st.download_button("📩 Download Report", data=csv, file_name="Doctor_Summary_Report.csv")
         else:
-            st.error("Could not identify 'Doctor Name' column. Please check your Excel headers.")
+            st.error("Error: Could not find 'Doctor Name' column in your Excel file.")
 
     except Exception as e:
         st.error(f"Something went wrong while processing: {e}")
