@@ -92,6 +92,21 @@ if uploaded_file is not None:
             # Export
             csv = doc_summary.to_csv(index=False).encode('utf-8')
             st.download_button("📩 Download Professional Summary", data=csv, file_name="Doctor_Wise_Report.csv", mime="text/csv")
+            # Add this right after the file upload section in your app.py
+if uploaded_file is not None:
+    # ... (existing code to load df) ...
+    
+    # NEW SEARCH FILTER
+    st.sidebar.header("Filter Options")
+    all_doctors = ["All"] + list(doc_summary['Doctor Name'].unique())
+    selected_doc = st.sidebar.selectbox("Select Doctor for Personal Summary", all_doctors)
+
+    if selected_doc != "All":
+        display_df = doc_summary[doc_summary['Doctor Name'] == selected_doc]
+    else:
+        display_df = doc_summary
+
+    # Use 'display_df' for your table and metrics
 
     except Exception as e:
         st.error(f"Error processing file: {e}")
